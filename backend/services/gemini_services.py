@@ -1,13 +1,21 @@
 import io
 import os
 import sys
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from google import genai
 import logging
+import json
+import re
+from google.genai.types import File, UploadFileConfig, CountTokensResponse
+from pydantic import BaseModel
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class Documents(BaseModel):
+    document: List[File]
 
 class GeminiService:
     """
@@ -29,6 +37,7 @@ class GeminiService:
         self.transcription = None
         self.quiz_generated = False
         self.quiz_data = None
+        self.token_count = 0
     
     class ProgressFileReader(io.BufferedReader):
         """
@@ -63,7 +72,8 @@ class GeminiService:
         def __exit__(self, exc_type, exc_val, exc_tb):
             self.close()
 
-    def upload_progress(self, read_bytes: int, total_bytes: int) -> None:
+    @staticmethod
+    def _upload_progress(read_bytes: int, total_bytes: int) -> None:
         """
         Progress callback function for file uploads.
         
@@ -77,7 +87,7 @@ class GeminiService:
         if read_bytes == total_bytes:
             print()  # New line when done
 
-    def upload_audio_file(self, file_path: str, display_name: str = "Audio Clip") -> Optional[str]:
+    def upload_audio_file(self, file_path: str, display_name: str = "Audio Clip") -> File | None:
         """
         Upload an audio file to Gemini and return the file URI.
         
@@ -94,13 +104,10 @@ class GeminiService:
                 return None
 
             # Open file with progress wrapper
-            with self.ProgressFileReader(file_path, callback=self.upload_progress) as pfr:
+            with self.ProgressFileReader(file_path, callback=self._upload_progress) as pfr:
                 self.uploaded_file_uri = self.client.files.upload(
                     file=pfr,
-                    config={
-                        "mime_type": "audio/mpeg",
-                        "display_name": display_name
-                    }
+                    config=UploadFileConfig(mime_type= "audio/mpeg", display_name=display_name),
                 )
 
             logger.info(f"Uploaded file: {self.uploaded_file_uri}")
@@ -111,7 +118,7 @@ class GeminiService:
             logger.error(f"Error uploading file: {str(e)}")
             return None
 
-    def get_audio_transcription(self, file_uri: str) -> Optional[str]:
+    def get_audio_transcription(self, file_uri: File) -> Optional[str]:
         """
         Get transcription and analysis of the uploaded audio file.
         
@@ -125,7 +132,7 @@ class GeminiService:
             try:
                 response = self.client.models.generate_content(
                     model=self.model,
-                    contents=["Please transcribe this audio file and provide a detailed summary of its content.", self.uploaded_file_uri]
+                    contents=["Please transcribe this audio file and provide a detailed summary of its content.", file_uri]
                 )
                 
                 self.transcription_generated = True
@@ -200,7 +207,7 @@ class GeminiService:
             logger.error(f"Error generating quiz questions: {str(e)}")
             return []
 
-    def _parse_quiz_response(self, response_text: str) -> List[Dict]:
+    def _parse_quiz_response(self, response_text: str) -> Optional[List[Dict]] | Dict[str, str]:
         """
         Parse the quiz response from Gemini into a structured format.
         
@@ -211,8 +218,6 @@ class GeminiService:
             List[Dict]: Parsed quiz questions
         """
         try:
-            import json
-            import re
             
             # Clean response text
             cleaned_text = response_text.strip()
@@ -226,15 +231,13 @@ class GeminiService:
             # Try to find just the questions array
             array_match = re.search(r'\[.*?\]', cleaned_text, re.DOTALL)
             if array_match:
-                return json.loads(array_match.group())
-                
-            # Fallback for malformed JSON
-            return self._create_fallback_questions(cleaned_text)
+                self.quiz_data = json.loads(array_match.group())
+                return self.quiz_data
+
             
         except (json.JSONDecodeError, AttributeError) as e:
             logger.warning(f"Failed to parse JSON response: {e}")
-            return self._create_fallback_questions(response_text)
-
+            return {"Error": "Unable to parse JSON response."}
 
     def process_audio_and_generate_quiz(self, file_path: str, num_questions: int = 5, difficulty: str = "medium") -> Dict:
         """
@@ -277,4 +280,41 @@ class GeminiService:
         except Exception as e:
             logger.error(f"Error in complete workflow: {str(e)}")
             return {"error": f"Workflow failed: {str(e)}"}
+
+    def upload_pdf_file(self, file_path: str) -> Optional[str] | File:
+        try:
+            if not os.path.exists(file_path):
+                logger.error(f"File not found: {file_path}")
+                return None
+
+            # Open file with progress wrapper
+            with self.ProgressFileReader(file_path, callback=self._upload_progress) as pfr:
+                self.uploaded_file_uri = self.client.files.upload(
+                    file=pfr,
+                    config=UploadFileConfig(mime_type="application/pdf")
+                )
+
+            logger.info(f"Uploaded file: {self.uploaded_file_uri}")
+            self.file_uploaded = True
+            return self.uploaded_file_uri
+
+        except Exception as e:
+            logger.error(f"Error uploading file: {str(e)}")
+            return None
+
+
+    def generate_response(self, prompt: str, files: Documents=None) -> str | Dict[str, str]:
+        response = self.client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[files, prompt])
+        return response.text
+
+    def get_token_count(self, contents: str) -> CountTokensResponse:
+        token_count = self.client.models.count_tokens(
+            model=self.model,
+            contents=contents,
+        )
+        self.token_count = token_count
+        return token_count
+
 
