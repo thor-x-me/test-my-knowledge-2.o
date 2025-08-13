@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.controllers.video_to_quiz import router as video_to_quiz
+from backend.controllers.document_chat import router as document_chat
 from datetime import datetime
 
 
@@ -13,6 +14,11 @@ app = FastAPI(
 app.include_router(video_to_quiz.router,
                    prefix="/api/video_to_quiz",
                    tags=["videoToQuiz"]
+                   )
+
+app.include_router(document_chat.router,
+                   prefix="/api/document_chat",
+                   tags=["DocumentChat"]
                    )
 
 # Add CORS middleware
@@ -35,7 +41,8 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "available_endpoints": {
-            "video to quiz": "/api/video_to_quiz"
+            "video to quiz": "/api/video_to_quiz",
+            "document chat": "/api/document_chat"
         }
     }
 
