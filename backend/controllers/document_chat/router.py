@@ -54,7 +54,7 @@ async def upload_document(session_id: str = Form(...), file: UploadFile = File(.
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
         # Ensure downloads directory exists
-        uploads_dir = os.path.join("backend", "downloads")
+        uploads_dir = os.path.join("..", "backend", "downloads")
         os.makedirs(uploads_dir, exist_ok=True)
 
         # Persist the uploaded file to disk
