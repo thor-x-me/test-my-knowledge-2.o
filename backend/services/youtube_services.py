@@ -30,6 +30,14 @@ class YouTubeService:
         """
         self.output_directory = output_directory
         self.url = url
+        self.title = None
+        self.author = None
+        self.length = None
+        self.views = None
+        self.description = None
+        self.keywords = None
+        self.thumbnail_url = None
+        self.video_id = None
 
         # Create output directory if it doesn't exist
         os.makedirs(output_directory, exist_ok=True)
@@ -44,8 +52,8 @@ class YouTubeService:
         self.length = yt.length
         self.views = yt.views
         self.description = yt.description
-        self.keywords = yt.keywords
-        self.thumbnail_url = yt.thumbnail_url
+        self.keywords = str(yt.keywords)
+        self.thumbnail_url = str(yt.thumbnail_url)
         self.video_id = yt.video_id
         
         
