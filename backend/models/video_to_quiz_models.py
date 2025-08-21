@@ -15,13 +15,17 @@ class QuizGenerationRequest(BaseModel):
     num_questions: int = 10  # Number of questions to generate (1-20)
 
 
-class QuizAnswerRequest(BaseModel):
-    video_id: str
-    difficulty: str = "medium"
-    question_index: int
-    selected_option: str  # A, B, C, or D
+class QuestionModel(BaseModel):  # adjust fields to match MCQ
+    question_id: int
+    question: str
+    a: str
+    b: str
+    c: str
+    d: str
+    correct_answer: str
+    explanation: str
 
-
-class QuizNavigationRequest(BaseModel):
-    question_index: int
-
+class QuizResultRequest(BaseModel):
+    total_correct_attempt: int
+    total_wrong_attempt: int
+    not_attempted: int
