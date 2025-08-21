@@ -258,25 +258,69 @@ class GeminiService:
                 return {"error": "Failed to upload audio file"}
 
             # Step 2: Get transcription
-            transcription = self.get_audio_transcription(file_uri)
-            if not transcription:
-                return {"error": "Failed to get audio transcription"}
+            # transcription = self.get_audio_transcription(file_uri)
+            # if not transcription:
+            #     return {"error": "Failed to get audio transcription"}
+
+            #skipping transcription to reduce latency
 
             # Step 3: Generate quiz questions
-            questions = self.generate_quiz_questions(transcription, num_questions, difficulty)
+            if self.file_uploaded:
+                try:
+                    example_json = """
+                                [
+                                    {
+                                        "question": first question,
+                                        "options": {
+                                            "A": option A,
+                                            "B": option B,
+                                            "C": option C,
+                                            "D": option D,
+                                        },
+                                        "correct_answer": correct option either A,B,C or D,
+                                        "explanation": Explanation for the correct option,"
+                                    },
 
-            return {
-                "success": True,
-                "file_uri": file_uri,
-                "transcription": transcription,
-                "questions": questions,
-                "metadata": {
-                    "num_questions": len(questions),
-                    "difficulty": difficulty,
-                    "source_file": os.path.basename(file_path)
-                }
-            }
-            
+                                ]
+                                """
+                    prompt = f"""
+                                Based on the following content, generate {num_questions} multiple-choice quiz questions.
+                                Randomize correct answer positions across A, B, C, D.
+
+                                Requirements:
+                                - Difficulty level: {difficulty}
+                                - Each question should have 4 options (A, B, C, D)
+                                - Include the correct answer
+                                - Questions should test understanding of the content
+                                - Format each question as a JSON object with: question, options, correct_answer, explanation
+                                example:
+                                {example_json}
+
+                                Return the questions as a JSON array.
+                                """
+                    response = self.client.models.generate_content(
+                        model=self.model,
+                        contents=[prompt,
+                                  file_uri]
+                    )
+                    questions = self._parse_quiz_response(response.text)
+
+                    return {
+                        "success": True,
+                        "file_uri": file_uri,
+                        "questions": questions,
+                        "metadata": {
+                            "num_questions": len(questions),
+                            "difficulty": difficulty,
+                            "source_file": os.path.basename(file_path)
+                        }
+                    }
+
+                except Exception as e:
+                    logger.error(f"Error getting transcription: {str(e)}")
+                    return None
+
+
         except Exception as e:
             logger.error(f"Error in complete workflow: {str(e)}")
             return {"error": f"Workflow failed: {str(e)}"}
@@ -303,7 +347,7 @@ class GeminiService:
             return None
 
 
-    def generate_response(self, prompt: str, files: Documents=None) -> str | Dict[str, str]:
+    def generate_response(self, prompt: str, files: Documents=None) -> str:
         response = self.client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[files, prompt])
