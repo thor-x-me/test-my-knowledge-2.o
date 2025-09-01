@@ -8,7 +8,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Dict, Optional, Tuple
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
