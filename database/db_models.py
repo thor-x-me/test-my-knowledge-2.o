@@ -1,10 +1,38 @@
-from sqlalchemy import Column, Integer, String, create_engine, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, create_engine, DateTime, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
 engine = create_engine('sqlite:///../database/database.db', echo=True)
 Base = declarative_base()
+
+# Document chat model
+
+class DocumentChatHistory(Base):
+    """
+    This table stores chat history of DocumentChat feature.
+    """
+    __tablename__ = "conversation"
+
+    conversation_id = Column(Integer, primary_key=True, nullable=False)
+    document_id = Column(String, nullable=False)
+    user_id = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now)
+
+class DocumentChatMessageHistory(Base):
+    """
+    This table stores individual messages in document chat conversations.
+    """
+    __tablename__ = "messages"
+
+    message_id = Column(Integer, primary_key=True, nullable=False)
+    conversation_id = Column(Integer, ForeignKey("conversation.conversation_id"), nullable=False)
+    is_bot = Column(Boolean, nullable=False)  # True for bot, False for user
+    message_text = Column(String, nullable=False)
+    timestamp = Column(DateTime, nullable=False, default=datetime.now)
+
+
+# Video to Quiz DB tables
 
 class VideoCache(Base):
     """
