@@ -1,25 +1,65 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-import logging
-from datetime import datetime
-from dotenv import load_dotenv
 import os
 import uuid
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
+from pydantic import BaseModel
+from fastapi.params import Depends
+from sqlalchemy.orm import Session
+from typing import Dict, List, Optional, Any
+from logging.handlers import RotatingFileHandler
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
+
 
 # Importing services
-from backend.services.document_chat_services import DocumentChatService
+from backend.services.gemini_services import GeminiService, Documents
+from backend.utils import authenticate_user_get_user_details
+from database.db_models import get_db
+
+# Importing db methods
+from database.document_chat_db import (
+    create_conversation,
+    get_document_chat_history,
+    add_document_chat_messages_batch,
+    get_document_chat_message_history
+)
+
+# I/O validation
+class ChatMessageHistory(BaseModel):
+    chat: List[Dict[str, str]]
+
+class ChatRequest(BaseModel):
+    message: str
+    file_uri: Dict[str, Any]
+    conversation_id: int
+    history: Optional[ChatMessageHistory] = None
+
+class ChatResponse(BaseModel):
+    response: str
+
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure file logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler('app.log', maxBytes=10*1024*1024, backupCount=5),
+        logging.StreamHandler()  # Keep console output too
+    ]
+)
 logger = logging.getLogger(__name__)
 
-load_dotenv(r"../.env")
 
 # Initialize FastAPI router
 router = APIRouter(
     tags=["DocumentChat"],
 )
 
-session_data = {}
+load_dotenv(r"../.env")
+
+gemini_service = GeminiService(os.getenv("GEMINI_API_KEY"))
+
 
 @router.get("/")
 async def root():
@@ -28,95 +68,89 @@ async def root():
             "Status": "running"}
 
 
-@router.post("/session/new")
-async def create_session():
-    """Create a new document chat session and return session_id"""
-    session_id = str(uuid.uuid4())
-    session_data[session_id] = {
-        "service": DocumentChatService(),
-        "created_at": datetime.now().isoformat(),
+@router.post("/create-new-document-chat")   # test successful
+async def create_new_document_chat(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    user_id = authenticate_user_get_user_details(request).get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User not authorized.")
+    # Save file locally
+    try:
+        extension = Path(file.filename).suffix
+        unique_filename = f"{uuid.uuid4()}{extension}"
+        file_path = f"uploads/{unique_filename}"
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+    except:
+        raise HTTPException(status_code=500, detail="Failed to save file.")
+
+    # Upload to external service
+    file_uri = gemini_service.upload_pdf_file(file_path=file_path)
+
+    # add new conversation in db
+    create_new_document_conversation = create_conversation(db=db, document_id=unique_filename, user_id=user_id)
+    return {
+        "conversation": create_new_document_conversation,
+        "file_uri": file_uri
     }
-    return {"success": True, "session_id": session_id}
 
 
-@router.post("/document/upload")
-async def upload_document(session_id: str = Form(...), file: UploadFile = File(...)):
-    """
-    Upload a PDF document for a given session. Expects multipart/form-data with fields:
-    - session_id: string
-    - file: UploadFile (PDF)
-    """
+@router.post("/chat", response_model=ChatResponse)  # test successful
+async def chat_with_document(request: Request, chat_request: ChatRequest, db: Session = Depends(get_db)):
+    user_id = authenticate_user_get_user_details(request).get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Validate inputs
+    if len(chat_request.message.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
     try:
-        if session_id not in session_data:
-            raise HTTPException(status_code=404, detail="Invalid session_id. Create a session first.")
+        # Generate response
+        message_with_context = str(
+            chat_request.history) + chat_request.message if chat_request.history else chat_request.message
+        response = gemini_service.generate_response(message_with_context, chat_request.file_uri)
 
-        if file.content_type not in ["application/pdf", "application/x-pdf", "application/acrobat"]:
-            raise HTTPException(status_code=400, detail="Only PDF files are supported")
+        # Batch database operations
+        messages = [
+            {"conversation_id": chat_request.conversation_id, "is_bot": False, "message_text": chat_request.message},
+            {"conversation_id": chat_request.conversation_id, "is_bot": True, "message_text": response}
+        ]
+        add_document_chat_messages_batch(db, messages)
 
-        # Ensure downloads directory exists
-        uploads_dir = os.path.join("..", "backend", "downloads")
-        os.makedirs(uploads_dir, exist_ok=True)
+        return ChatResponse(response=response)
 
-        # Persist the uploaded file to disk
-        saved_path = os.path.join(uploads_dir, f"{uuid.uuid4()}_{file.filename}")
-        with open(saved_path, "wb") as out_file:
-            out_file.write(await file.read())
-
-        # Upload to Gemini via the service and store file handle
-        service: DocumentChatService = session_data[session_id]["service"]
-        uploaded_file = service.upload_document(saved_path)
-
-        if not uploaded_file:
-            raise HTTPException(status_code=500, detail="Failed to upload document to model")
-
-        return {
-            "success": True,
-            "session_id": session_id,
-            "filename": file.filename,
-            "saved_path": saved_path,
-            "file": str(uploaded_file),
-        }
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error uploading document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        logging.error(f"Chat error for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to process chat request")
 
 
-@router.post("/chat")
-async def chat_with_document(payload: dict):
-    """
-    Send a prompt to chat with the uploaded documents.
-    Body JSON: { "session_id": string, "prompt": string }
-    """
-    try:
-        session_id = payload.get("session_id")
-        prompt = payload.get("prompt")
+@router.get("/chat_history")    # test successful
+async def get_chat_with_document_history(
+        request: Request,
+        skip: int = Query(0, ge=0),
+        limit: int = Query(10, ge=1, le=100),
+        db: Session = Depends(get_db)
+):
+    user_id = authenticate_user_get_user_details(request).get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-        if not session_id or not prompt:
-            raise HTTPException(status_code=400, detail="Both session_id and prompt are required")
-
-        if session_id not in session_data:
-            raise HTTPException(status_code=404, detail="Invalid session_id. Create a session first.")
-
-        service: DocumentChatService = session_data[session_id]["service"]
-        reply = service.chat_with_document(prompt)
-
-        if reply is None:
-            raise HTTPException(status_code=500, detail="Failed to generate response")
-
-        return {
-            "success": True,
-            "session_id": session_id,
-            "prompt": prompt,
-            "reply": reply,
-            "token_count_total": service.document_chat_token_count,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error chatting with document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+    history = get_document_chat_history(db=db, user_id=user_id, skip=skip, limit=limit)
+    return {"conversations": history, "count": len(history)}
 
 
+@router.get("/chat_message_history")    # test successful
+async def get_chat_with_document_message_history(
+        request: Request,
+        conversation_id: int = Query(..., gt=0),
+        db: Session = Depends(get_db)
+):
+    user_id = authenticate_user_get_user_details(request).get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
+    messages = get_document_chat_message_history(db, conversation_id, user_id)
+    if not messages:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return {"messages": messages}
