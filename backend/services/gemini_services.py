@@ -329,7 +329,7 @@ class GeminiService:
         try:
             if not os.path.exists(file_path):
                 logger.error(f"File not found: {file_path}")
-                return None
+                return {"message": "File not found at path."}
 
             # Open file with progress wrapper
             with self.ProgressFileReader(file_path, callback=self._upload_progress) as pfr:
