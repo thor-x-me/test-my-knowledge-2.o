@@ -3,7 +3,9 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
-engine = create_engine('sqlite:///../database/database.db', echo=True)
+engine = create_engine(
+    "postgresql://postgres:1234@localhost/postgres",
+    isolation_level="REPEATABLE READ",echo=True)
 Base = declarative_base()
 
 # Document chat model
