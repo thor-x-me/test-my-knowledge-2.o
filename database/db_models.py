@@ -5,7 +5,7 @@ from datetime import datetime
 
 engine = create_engine(
     "postgresql://postgres:1234@localhost/postgres",
-    isolation_level="REPEATABLE READ",echo=True)
+    isolation_level="REPEATABLE READ",echo=False)
 Base = declarative_base()
 
 # Document chat model
