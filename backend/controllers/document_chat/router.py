@@ -7,7 +7,6 @@ from pydantic import BaseModel
 from fastapi.params import Depends
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional, Any
-from logging.handlers import RotatingFileHandler
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 
 
@@ -37,17 +36,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
-
-# Configure logging
-# Configure file logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        RotatingFileHandler('app.log', maxBytes=10*1024*1024, backupCount=5),
-        logging.StreamHandler()  # Keep console output too
-    ]
-)
 logger = logging.getLogger(__name__)
 
 
@@ -64,6 +52,7 @@ gemini_service = GeminiService(os.getenv("GEMINI_API_KEY"))
 @router.get("/")
 async def root():
     """Root endpoint for DocumentChat API"""
+    logger.info("DocumentChat API Root endpoint called")
     return {"message": "DocumentChat Platform API",
             "Status": "running"}
 
@@ -72,6 +61,7 @@ async def root():
 async def create_new_document_chat(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
     user_id = authenticate_user_get_user_details(request).get("user_id")
     if not user_id:
+        logger.warning(f"User: {user_id} not found.")
         raise HTTPException(status_code=401, detail="User not authorized.")
     # Save file locally
     try:
@@ -81,6 +71,7 @@ async def create_new_document_chat(request: Request, file: UploadFile = File(...
         with open(file_path, "wb") as f:
             f.write(await file.read())
     except:
+        logger.error(f"Error while saving file: {str(file)}")
         raise HTTPException(status_code=500, detail="Failed to save file.")
 
     # Upload to external service
@@ -88,6 +79,7 @@ async def create_new_document_chat(request: Request, file: UploadFile = File(...
 
     # add new conversation in db
     create_new_document_conversation = create_conversation(db=db, document_id=unique_filename, user_id=user_id)
+    logger.info(f"Created new document conversation for user: {user_id} with document id: {unique_filename}")
     return {
         "conversation": create_new_document_conversation,
         "file_uri": file_uri
@@ -98,10 +90,12 @@ async def create_new_document_chat(request: Request, file: UploadFile = File(...
 async def chat_with_document(request: Request, chat_request: ChatRequest, db: Session = Depends(get_db)):
     user_id = authenticate_user_get_user_details(request).get("user_id")
     if not user_id:
+        logger.warning(f"User: {user_id} not found.")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Validate inputs
     if len(chat_request.message.strip()) == 0:
+        logger.warning(f"Empty chat message: {chat_request.message.strip()}")
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
     try:
@@ -116,6 +110,7 @@ async def chat_with_document(request: Request, chat_request: ChatRequest, db: Se
             {"conversation_id": chat_request.conversation_id, "is_bot": True, "message_text": response}
         ]
         add_document_chat_messages_batch(db, messages)
+        logger.info(f"Successfully added chat message for user: {user_id}")
 
         return ChatResponse(response=response)
 
@@ -133,9 +128,11 @@ async def get_chat_with_document_history(
 ):
     user_id = authenticate_user_get_user_details(request).get("user_id")
     if not user_id:
+        logger.warning(f"User: {user_id} not found.")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     history = get_document_chat_history(db=db, user_id=user_id, skip=skip, limit=limit)
+    logger.info(f"Found {len(history)} chat messages for user: {user_id}")
     return {"conversations": history, "count": len(history)}
 
 
@@ -147,10 +144,12 @@ async def get_chat_with_document_message_history(
 ):
     user_id = authenticate_user_get_user_details(request).get("user_id")
     if not user_id:
+        logger.warning(f"User: {user_id} not found.")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     messages = get_document_chat_message_history(db, conversation_id, user_id)
     if not messages:
+        logger.warning(f"No chat messages for user: {user_id}")
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     return {"messages": messages}

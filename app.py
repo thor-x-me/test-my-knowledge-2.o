@@ -4,7 +4,7 @@ from backend.controllers.video_to_quiz import router as video_to_quiz
 from backend.controllers.document_chat import router as document_chat
 from datetime import datetime
 
-
+import logger
 app = FastAPI(
     title="Ed Tech",
     description="A platform that provides education with the help of AI.",
