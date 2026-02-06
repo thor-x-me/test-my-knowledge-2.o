@@ -28,7 +28,6 @@ from backend.services.gemini_services import GeminiService
 from backend.models.video_to_quiz_models import *
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -41,11 +40,13 @@ gemini_service = GeminiService(os.getenv("GEMINI_API_KEY"))
 
 @router.get("/")        # successfully tested
 async def root():
+    logger.info("Video to quiz route accessed")
     return {"message": "Video to Quiz Platform API", "status": "running"}
 
 
 @router.get("/user-history")
 async def user_history(request: Request, db: Session = Depends(get_db)):
+    logger.info("User history accessed")
     user_id = authenticate_user_get_user_details(request).get("user_id")
     quizzes = get_user_video_to_quiz(db, user_id)
     return {"quizzes": quizzes}
@@ -55,6 +56,7 @@ async def get_quota(request: Request, db: Session = Depends(get_db)):
     user_id = authenticate_user_get_user_details(request).get("user_id")
     quota = get_video_to_quiz_quota(db, user_id)
     if not quota:
+        logger.error(f"Quota not found for user:{user_id}")
         return {"user_id": user_id, "quota_remaining": 0, "last_reset_date": datetime.now()}
     quota = reset_video_to_quiz_quota_if_needed(db, quota)
     return quota
@@ -92,10 +94,12 @@ async def download_audio(req: AudioDownloadRequest, background_tasks: Background
     try:
         video_info = get_video_info_from_cache(db=db, video_id=req.video_id)
         if not video_info:
+            logger.warning(f"[BG] Video not found {req.video_id}")
             raise HTTPException(status_code=404, detail="Video not found in cache. Please get video details first.")
 
         audio_file_path = os.path.join("downloads", f"{req.video_id}.m4a")
         if os.path.exists(audio_file_path):
+            logger.info(f"[BG] Audio already downloaded for {req.video_id}")
             return {
                 "success": True,
                 "message": "Audio already downloaded.",
@@ -105,11 +109,13 @@ async def download_audio(req: AudioDownloadRequest, background_tasks: Background
             }
 
         background_tasks.add_task(download_audio_background, req.video_id)
+        logger.info(f"Audio download started {req.video_id}...")
         return {"success": True, "message": "Audio download started in background.", "video_info": video_info, "status": "downloading"}
-    except HTTPException:
+    except HTTPException as e:
+        logger.exception(f"Error: {e}")
         raise
     except Exception as e:
-        logger.exception("Error starting audio download")
+        logger.error(f"Error starting audio download: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start audio download: {str(e)}")
 
 async def download_audio_background(video_id: str):
@@ -120,27 +126,32 @@ async def download_audio_background(video_id: str):
         if "error" in audio_result:
             logger.error(f"[BG] Audio download failed: {audio_result['error']}")
     except Exception:
-        logger.exception("[BG] Audio download error")
+        logger.error("[BG] Audio download error")
 
 @router.post("/generate")   # successfully tested
 async def generate_quiz(request: Request, quiz_request: QuizGenerationRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     try:
         user_id = authenticate_user_get_user_details(request).get("user_id")
         if not user_id:
+            logger.warning(f"[BG] User not found {user_id}")
             raise HTTPException(status_code=401, detail="User not authorized.")
 
         if quiz_request.difficulty not in ["easy", "medium", "hard"]:
+            logger.exception("[BG] Invalid difficulty")
             raise HTTPException(status_code=400, detail="Difficulty must be easy, medium, or hard")
         if not (1 <= quiz_request.num_questions <= 20):
+            logger.exception(f"[BG] Invalid number of questions{quiz_request.num_questions}")
             raise HTTPException(status_code=400, detail="Number of questions must be between 1 and 20")
 
         video_info = get_video_info_from_cache(db=db, video_id=quiz_request.video_id)
 
         if not video_info:
+            logger.error(f"[BG] Video not found {video_info}")
             raise HTTPException(status_code=404, detail="Video not found. Please get video details first.")
 
         audio_file_path = os.path.join("downloads", f"{quiz_request.video_id}.m4a")
         if not os.path.exists(audio_file_path):
+            logger.error("Audio not downloaded.")
             raise HTTPException(status_code=400, detail="Audio not downloaded. Please use /audio/download first.")
 
         quiz_ref = create_video_to_quiz(
@@ -173,10 +184,11 @@ async def generate_quiz(request: Request, quiz_request: QuizGenerationRequest, b
             "quiz_ref": quiz_ref,
         }
 
-    except HTTPException:
+    except HTTPException as e:
+        logger.exception(f"[BG] Quiz generation error: {e}")
         raise
     except Exception as e:
-        logger.exception("Error starting quiz generation")
+        logger.exception(f"Error starting quiz generation: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start quiz generation: {str(e)}")
 
 async def process_video_and_generate_quiz(video_id: str, quiz_id: int, difficulty: str, num_questions: int, video_info: Dict):
@@ -198,9 +210,9 @@ async def process_video_and_generate_quiz(video_id: str, quiz_id: int, difficult
         add_bulk_mcqs_video_to_quiz(db=db, quiz_id=quiz_id, questions=quiz_result["questions"])
         db.commit()
         logger.info(f"[BG] Quiz generated for {video_info.__dict__['title']} (quiz_id={quiz_id})")
-    except Exception:
+    except Exception as e:
         db.rollback()
-        logger.exception("[BG] Quiz generation error")
+        logger.exception(f"[BG] Quiz generation error: {e}")
     finally:
         db.close()
 
@@ -211,6 +223,7 @@ async def get_quiz_status_from_db(db: Session, quiz_id: int, user_id: str):
         VideoToQuiz.created_by == user_id
     ).first()
     if not quiz:
+        logger.error(f"[BG] Quiz not found: {quiz_id} for user {user_id}")
         return None
 
     # Check if any questions exist for this quiz
@@ -289,6 +302,7 @@ async def add_results(
             result_data.not_attempted
         )
     except ValueError as e:
+        logger.exception(f"[BG] Error adding results: {e}")
         raise HTTPException(
             status_code=400,
             detail="Invalid quiz submission: question count does not match quiz requirements"
