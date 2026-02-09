@@ -1,14 +1,60 @@
 from sqlalchemy import Column, Integer, String, create_engine, DateTime, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-from datetime import datetime
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import sessionmaker, relationship, Mapped, mapped_column
+from datetime import datetime, UTC
+import uuid
 
 engine = create_engine(
     "postgresql://postgres:1234@localhost/postgres",
-    isolation_level="REPEATABLE READ",echo=False)
+    isolation_level="REPEATABLE READ",echo=True)
 Base = declarative_base()
 
-# Document chat model
+# lecture to notes DB tables
+
+class FilesUploaded(Base):
+    """
+    This table stores metadata of file uploaded to database
+    """
+    __tablename__ = "files_uploaded"
+    audio_file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False
+    )
+    user_id = mapped_column(String, nullable=False)
+    duration = mapped_column(Integer, nullable=False)
+    created_at = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.now
+    )
+
+class FileTranscript(Base):
+    """
+    This table stores transcript of audio files to database
+    """
+    __tablename__ = "files_transcript"
+    transcript_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False
+    )
+    audio_file_id = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey('files_uploaded.audio_file_id'),
+        nullable=False
+    )
+    token_counts: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.now(UTC)
+    )
+
+# Document chat DB tables
 
 class DocumentChatHistory(Base):
     """
