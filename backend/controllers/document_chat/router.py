@@ -57,7 +57,7 @@ async def root():
             "Status": "running"}
 
 
-@router.post("/create-new-document-chat")   # test successful
+@router.post("/create_new_document_chat")   # test successful
 async def create_new_document_chat(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
     user_id = authenticate_user_get_user_details(request).get("user_id")
     if not user_id:
