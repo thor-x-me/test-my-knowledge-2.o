@@ -34,7 +34,7 @@ pyasn1==0.6.2
 pyasn1_modules==0.4.2
 pycparser==3.0
 pydantic==2.12.5
-pydantic_core==2.41.5
+psycopg2-binary
 PyJWT==2.11.0
 python-dotenv==1.1.1
 python-multipart==0.0.20
@@ -53,4 +53,3 @@ uvicorn==0.35.0
 watchfiles==1.1.1
 websockets==15.0.1
 yarl==1.22.0
-psycopg2
