@@ -5,7 +5,7 @@ from google.genai.types import File
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from backend.prompts.summary_generator_prompt import prompt
-load_dotenv("../.env")
+load_dotenv()
 
 
 class Documents(BaseModel):
