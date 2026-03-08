@@ -132,7 +132,7 @@ class GeminiService:
             try:
                 response = self.client.models.generate_content(
                     model=self.model,
-                    contents=["Please transcribe this audio file and provide a detailed summary of its content.", file_uri]
+                    contents=["Please transcribe this audio file.", file_uri]
                 )
                 
                 self.transcription_generated = True
@@ -360,5 +360,13 @@ class GeminiService:
         )
         self.token_count = token_count
         return token_count
+
+    def text_completion(self, text: str) -> str:
+        response = self.client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=text
+        )
+        return response.text
+
 
 
