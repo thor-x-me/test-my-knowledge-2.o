@@ -6,7 +6,7 @@ from datetime import datetime, UTC
 import uuid
 
 engine = create_engine(
-    "postgresql://postgres:1234@localhost/postgres",
+    "postgresql://thor:1234@localhost/postgres",
     isolation_level="REPEATABLE READ",echo=True)
 Base = declarative_base()
 
@@ -24,11 +24,13 @@ class FilesUploaded(Base):
         nullable=False
     )
     user_id = mapped_column(String, nullable=False)
-    duration = mapped_column(Integer, nullable=False)
+    file_path: Mapped[str] = mapped_column(String, nullable=True)
+    duration = mapped_column(Integer, default=0, nullable=False)
+    status = mapped_column(String, default="uploading")     # uploading, uploaded, transcript_generated
     created_at = mapped_column(
         DateTime,
         nullable=False,
-        default=datetime.now
+        default=datetime.now(UTC)
     )
 
 class FileTranscript(Base):
@@ -47,7 +49,8 @@ class FileTranscript(Base):
         ForeignKey('files_uploaded.audio_file_id'),
         nullable=False
     )
-    token_counts: Mapped[int] = mapped_column(Integer)
+    transcript: Mapped[str] = mapped_column(String, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
