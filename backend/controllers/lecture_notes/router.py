@@ -1,19 +1,21 @@
 import os
-import uuid
 import logging
-from pathlib import Path
-from dotenv import load_dotenv
-from pydantic import BaseModel
+
 from fastapi.params import Depends
 from sqlalchemy.orm import Session
-from typing import Dict, List, Optional, Any
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File,BackgroundTasks
+from pydub import AudioSegment
+from backend.services.gemini_services import GeminiService
 
-from backend.services.gemini_services import GeminiService, Documents
 from backend.utils import authenticate_user_get_user_details
 from database.db_models import get_db
-
-from database.lecture_notes_db import save_file_metadata
+from backend.controllers.lecture_notes.prompt import generate_notes_prompt
+from database.lecture_notes_db import (
+    get_new_file_id, update_file_data,
+    save_lecture_transcript,
+    if_transcript_exists,
+    get_lecture_transcript
+)
 logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = "audio"
@@ -21,8 +23,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Initialize FastAPI router
 router = APIRouter(
-    tags=["LectureNotes"],
-    prefix="/lecture_notes",
+    tags=["LectureNotes"]
 )
 
 @router.get("/")
@@ -37,34 +38,82 @@ async def root():
 async def upload_audio(
         request: Request,
         audio: UploadFile = File(...),
+        background_tasks: BackgroundTasks = None,
         db: Session = Depends(get_db)
     ):
     user_id = authenticate_user_get_user_details(request).get("user_id")
-    lecture_id = str(uuid.uuid4())
-    file_path = os.path.join(UPLOAD_DIR, f"{lecture_id}.mp3")
+    audio_file_id = get_new_file_id(
+        db=db,
+        user_id=user_id
+    )
+    file_path = os.path.join(UPLOAD_DIR, f"{audio_file_id}.mp3")
 
     # Save file
     with open(file_path, "wb") as buffer:
         buffer.write(await audio.read())
 
-    # Save metadata
-    save_file_metadata(
-        db=db,
-        document_id=lecture_id,
-        user_id=user_id
+    # 3. background processing
+    background_tasks.add_task(
+        _process_audio,
+        audio_file_id,
+        file_path,
+        db=db
     )
-    return {"lecture_id": lecture_id}
+
+    return {"success": True, "audio_file_id": audio_file_id}
+
+@router.get("/is_processing_complete")
+def is_processing_complete(
+        request: Request,
+        audio_file_id: str,
+        db:Session = Depends(get_db)
+):
+    user_id = authenticate_user_get_user_details(request).get("user_id")
+    exists = if_transcript_exists(
+        db=db,
+        user_id=user_id,
+        audio_file_id=audio_file_id
+    )
+    return exists
 
 @router.get("/generate_notes")
-def generate_notes():
-    # Step 2: Transcribe
-    transcript = transcribe_audio(file_path)
+def generate_notes(request: Request,transcript_id: str,  db: Session = Depends(get_db)):
 
-    # Step 3: Generate notes
-    notes = generate_notes(transcript)
+    transcript = get_lecture_transcript(transcript_id=transcript_id, db=db)
 
-    return {
-        "document_id": document_id,
-        "transcript": transcript,
-        "notes": notes
-    }
+    if transcript:
+        gemini = GeminiService(api_key=os.getenv("GEMINI_API_KEY"))
+        final_prompt = generate_notes_prompt + transcript
+        notes = gemini.text_completion(text=final_prompt)
+        return {"success": True, "notes": notes}
+
+    return {"success": False, "message": "Failed to generate notes"}
+
+
+def _process_audio(audio_file_id: str, file_path: str, db: Session):
+    """
+    Find duration of audio and create transcription of the audio lecture
+    """
+
+    audio_segment = AudioSegment.from_file(file_path)
+    duration = int(len(audio_segment) / 1000)
+
+    update_file_data(
+        db=db,
+        audio_file_id=audio_file_id,
+        duration=duration,
+        file_path=file_path,
+        status="completed"
+    )
+
+    gemini = GeminiService(api_key=os.getenv("GEMINI_API_KEY"))
+    file_uri = gemini.upload_audio_file(file_path=file_path)
+    transcription = gemini.get_audio_transcription(file_uri=file_uri)
+    token_count = gemini.get_token_count(transcription).total_tokens
+    save_lecture_transcript(
+        db=db,
+        audio_file_id=audio_file_id,
+        transcript=transcription,
+        token_count=token_count
+    )
+
