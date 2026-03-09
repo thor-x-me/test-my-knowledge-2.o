@@ -9,7 +9,7 @@ from backend.services.gemini_services import GeminiService
 
 from backend.utils import authenticate_user_get_user_details
 from database.db_models import get_db
-from backend.controllers.lecture_notes.prompt import generate_notes_prompt
+from backend.prompts import generate_notes_prompt
 from database.lecture_notes_db import (
     get_new_file_id, update_file_data,
     save_lecture_transcript,
