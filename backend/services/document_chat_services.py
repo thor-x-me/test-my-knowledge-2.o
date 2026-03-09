@@ -4,7 +4,7 @@ from backend.services.gemini_services import GeminiService
 from google.genai.types import File
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from backend.prompts.summary_generator_prompt import prompt
+from backend.prompts import summary_generator_prompt
 load_dotenv()
 
 
@@ -51,6 +51,6 @@ class DocumentChatService:
         return response
 
     def summarize_chat(self, chat_history):
-        summary = self.model.generate_response(prompt.prompt + chat_history)
+        summary = self.model.text_completion(summary_generator_prompt + chat_history)
         return summary
 
