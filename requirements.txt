@@ -36,6 +36,7 @@ pyasn1_modules==0.4.2
 pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
+pydub==0.25.1
 PyJWT==2.11.0
 python-dotenv==1.1.1
 python-multipart==0.0.20
@@ -56,4 +57,6 @@ websockets==15.0.1
 yarl==1.22.0
 psycopg2
 filetype==1.2.0
-pydub
+langchain-core==1.2.23
+langchain-openai==1.1.12
+langgraph-checkpoint-postgres==3.0.5
