@@ -1,13 +1,21 @@
 from contextlib import asynccontextmanager
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
-from langchain.chat_models import init_chat_model
-from langgraph.graph import StateGraph, MessagesState, START
+from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.prebuilt import ToolNode, tools_condition
 import os
+from fastapi.params import Depends
+from sqlalchemy.orm import Session
 from backend.tools.maths import multiply
+from database.db_models import get_db
+from database.agent_chat_db import create_agent_chat
+from backend.utils import authenticate_user_get_user_details
+import logging
+
+logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,60 +48,64 @@ async def lifespan(app: APIRouter):
 
         builder = StateGraph(MessagesState)
         builder.add_node(call_model)
+        builder.add_node("tools", ToolNode([multiply]))
         builder.add_edge(START, "call_model")
+        builder.add_conditional_edges(
+        "call_model",
+        tools_condition,
+        )
+        builder.add_edge("tools", "call_model")
+        builder.add_edge("call_model", END)
         graph = builder.compile(checkpointer=checkpointer)
 
         yield  # App runs here, checkpointer stays alive
 
-    # Cleanup happens automatically when context manager exits
+    # automatic cleanup when context manager exits
     graph = None
 
 
 router = APIRouter(lifespan=lifespan)
 
-class ChatRequest(BaseModel):
+class AgentChatRequest(BaseModel):
     message: str
-    thread_id: str = "default"
+    chat_id: str = None
 
-
-class ChatResponse(BaseModel):
-    response: str
-    thread_id: str
-
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+@router.post("/chat")
+async def chat(request: Request, data: AgentChatRequest, db: Session = Depends(get_db)):
     """Non-streaming chat endpoint with persistent memory per thread_id."""
-    if graph is None:
-        raise HTTPException(status_code=503, detail="Graph not initialized")
+    user_id = authenticate_user_get_user_details(request).get("user_id")
+    if not data.chat_id:
+        data.chat_id = create_agent_chat(db=db, user_id=user_id)
 
-    config = {"configurable": {"thread_id": request.thread_id}}
+    config = {"configurable": {"thread_id": data.chat_id}}
     final_message = None
 
     async for chunk in graph.astream(
-        {"messages": [{"role": "user", "content": request.message}]},
+        {"messages": [{"role": "user", "content": data.message}]},
         config,
         stream_mode="values"
     ):
         final_message = chunk["messages"][-1]
 
-    return ChatResponse(
-        response=final_message.content,
-        thread_id=request.thread_id
-    )
+    return {
+        "response": final_message.content,
+        "chat_id": data.chat_id
+    }
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
-    """True token-by-token streaming via SSE."""
-    if graph is None:
-        raise HTTPException(status_code=503, detail="Graph not initialized")
+async def chat_stream(request: Request, data: AgentChatRequest, db: Session = Depends(get_db)):
+    """token-by-token streaming via SSE."""
+    user_id = authenticate_user_get_user_details(request).get("user_id")
+    if not data.chat_id:
+        data.chat_id = create_agent_chat(db=db, user_id=user_id)
 
-    config = {"configurable": {"thread_id": request.thread_id}}
+    config = {"configurable": {"thread_id": data.chat_id}}
 
     async def generate():
+        yield f"event: chat_id\ndata: {data.chat_id}\n\n"
         async for event in graph.astream_events(
-            {"messages": [{"role": "user", "content": request.message}]},
+            {"messages": [{"role": "user", "content": data.message}]},
             config,
             version="v2"
         ):
