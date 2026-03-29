@@ -22,6 +22,25 @@ engine = create_engine(
     isolation_level="REPEATABLE READ",echo=True)
 Base = declarative_base()
 
+# agent chat DB tables extras, langgraph tables are created automatically
+
+class AgentChatHistory(Base):
+    """
+    This table stores conversation_id/thread_id for chat with agent
+    """
+    __tablename__ = "agent_chat_history"
+    agent_chat_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False
+    )
+    user_id = mapped_column(String, nullable=False)
+    created_at = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.now(UTC)
+    )
 # lecture to notes DB tables
 
 class FilesUploaded(Base):
