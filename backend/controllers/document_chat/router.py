@@ -71,7 +71,7 @@ async def create_new_document_chat(request: Request, file: UploadFile = File(...
         with open(file_path, "wb") as f:
             f.write(await file.read())
     except:
-        logger.error(f"Error while saving file: {str(file)}")
+        logger.exception(f"Error while saving file: {str(file)}")
         raise HTTPException(status_code=500, detail="Failed to save file.")
 
     # Upload to external service
@@ -115,7 +115,7 @@ async def chat_with_document(request: Request, chat_request: ChatRequest, db: Se
         return ChatResponse(response=response)
 
     except Exception as e:
-        logging.error(f"Chat error for user {user_id}: {str(e)}")
+        logging.exception(f"Chat error for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to process chat request")
 
 
