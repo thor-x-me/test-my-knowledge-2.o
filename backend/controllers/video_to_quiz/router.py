@@ -236,7 +236,7 @@ async def get_quiz_status_from_db(db: Session, quiz_id: int, user_id: str):
 @router.get("/status/{quiz_id}")    # successfully tested
 async def get_quiz_status(request: Request, quiz_id: int, db: Session = Depends(get_db)):
     user_id = authenticate_user_get_user_details(request).get("user_id")
-    status = get_quiz_status_from_db(db, quiz_id, user_id)
+    status = await get_quiz_status_from_db(db, quiz_id, user_id)
 
     if status is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
