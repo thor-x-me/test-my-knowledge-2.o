@@ -129,9 +129,30 @@ def main():
         print(f"  Authorization: Bearer {token}")
 
         # Save token to file
-        with open("tools/jwt_token.txt", "w") as f:
+        with open("jwt_token.txt", "w") as f:
             f.write(token)
 
 
 if __name__ == "__main__":
     main()
+
+import jwt  # pip install PyJWT
+import base64
+
+
+def decode_clerk_token(token: str):
+    # Remove "Bearer " prefix if present
+    if token.startswith("Bearer "):
+        token = token[7:]
+
+    # Decode without verification (just to read claims)
+    decoded = jwt.decode(token, options={"verify_signature": False})
+    print("Token claims:")
+    for key, value in decoded.items():
+        print(f"  {key}: {value}")
+    return decoded
+
+
+# # Usage: paste your token here
+# token = "eyJhbGciOiJSUzI1NiIsImNhdCI6ImNsX0I3ZDRQRDExMUFBQSIsImtpZCI6Imluc18zOURLTGxDTW8yT044VzhkYjB0alFaRkNqdHgiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3NzYyNzgzOTYsImZ2YSI6Wzk5OTk5LC0xXSwiaWF0IjoxNzc2Mjc0Nzk2LCJpc3MiOiJodHRwczovL3RvcC1ob3JuZXQtOTUuY2xlcmsuYWNjb3VudHMuZGV2IiwibmJmIjoxNzc2Mjc0Nzg2LCJzaWQiOiJzZXNzXzNDUDZLc0xMQTIwN1ZZOHJSTWJuYWhBYUl2WSIsInN0cyI6ImFjdGl2ZSIsInN1YiI6InVzZXJfMzlKU1Y5a0NEUzZ2aEdpRHpVNk5GU2ZFdEw5IiwidiI6Mn0.hWTYGTJYHbvxGaN9xySQpjkXoNCoTxw5KjVYkFgGpcIq1OeCBhgZPLuB9vMDnvdv6HCxxPjLhWqpldI7peg0C8_buM5R0Azx3SefiRHi2p7ZIaEp4qQwUBa2qRj0zDCXg9GK4oX6avBYD4g7mspIr2NFuvU3tdTPuUNJXG2tRxzfowNAlFIxxSs9MvoqAA7FxW5oB4yZkruTzeiLnfsbWu-qaqaIb3STFlp7PTvIAOUyH9ecTf5BdyEdcuWH1mQYadug6j9UPSoExg7YAY3mE3h3vxN5ozAuNI0Zb-8AtGHpYaEhdEJJ1ir5YC0JG2v3kj58hIZT4DMvYqbW7wxGaw"
+# decode_clerk_token(token)
