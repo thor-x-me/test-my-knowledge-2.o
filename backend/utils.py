@@ -14,7 +14,6 @@ clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))
 
 def authenticate_user_get_user_details(request):
     auth_header = request.headers.get("authorization")
-    print("Authorization header:", auth_header)
     try:
         request_state = clerk.authenticate_request(
             request,

@@ -12,6 +12,10 @@ import fitz  # PyMuPDF
 from PIL import Image
 import settings
 
+
+load_dotenv(override=True)
+
+
 # Importing services
 from backend.services.openai_provider import OpenAIService, FileItem
 from backend.services.gemini_services import GeminiService
@@ -36,7 +40,7 @@ class ChatRequest(BaseModel):
     conversation_id: int
     new_query_page: int
     pages_added: dict[int, FileItem] = dict()     # {1: {"type": "input_image", "file_id": file_id,}, ...]
-    history: Optional[ChatMessageHistory] = list()
+    history: Optional[ChatMessageHistory] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -49,7 +53,6 @@ router = APIRouter(
     tags=["DocumentChat"],
 )
 
-load_dotenv()
 
 # gemini_service = GeminiService(os.getenv("GEMINI_API_KEY"))
 openai_service = OpenAIService(os.getenv("OPENAI_API_KEY"), model=os.getenv("OPENAI_MODEL"))
@@ -77,7 +80,9 @@ async def create_new_document_chat(
     try:
         extension = Path(file.filename).suffix
         unique_filename = f"{uuid.uuid4()}{extension}"
-        file_path = f"{settings.PDF_STORE_LOCATION}/{unique_filename}"
+        pdf_store_path = Path(settings.PDF_STORE_LOCATION)
+        pdf_store_path.mkdir(parents=True, exist_ok=True)
+        file_path = pdf_store_path / unique_filename
         with open(file_path, "wb") as f:
             f.write(await file.read())
     except:
@@ -91,7 +96,9 @@ async def create_new_document_chat(
     new_document_conversation = create_conversation(db=db, document_id=unique_filename, user_id=user_id)
     logger.info(f"Created new document conversation for user: {user_id} with document id: {unique_filename}")
     return {
-        "conversation": new_document_conversation
+        "conversation": new_document_conversation,
+        "file_uri": unique_filename,
+        "document_id": unique_filename
     }
 
 
@@ -126,12 +133,14 @@ async def chat_with_document(
     if chat_request.new_query_page not in chat_request.pages_added.keys():
         # logic to get image from PDF page
         document_id = get_document_id(db, user_id, chat_request.conversation_id)
-        pdf_file_path = f'{settings.PDF_STORE_LOCATION}/{document_id}'
+        image_store_path = Path(settings.IMAGE_STORE_LOCATION)
+        image_store_path.mkdir(parents=True, exist_ok=True)
+        pdf_file_path = Path(settings.PDF_STORE_LOCATION) / document_id
         print(pdf_file_path)
         page_image = pdf_page_to_image(
-            pdf_path=pdf_file_path,
+            pdf_path=str(pdf_file_path),
             page_number=chat_request.new_query_page,
-            output_image=f"{settings.IMAGE_STORE_LOCATION}/{document_id}_{chat_request.new_query_page}.png"
+            output_image=str(image_store_path / f"{document_id}_{chat_request.new_query_page}.png")
         )
         page_id = openai_service.upload_file(page_image)
         chat_request.pages_added[chat_request.new_query_page] = page_id
