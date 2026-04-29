@@ -2,9 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.controllers.video_to_quiz import router as video_to_quiz
 from backend.controllers.document_chat import router as document_chat
+from backend.controllers.lecture_notes import router as lecture_notes
+from backend.controllers.main_agent import agent as agent_chat
 from datetime import datetime
 
-
+import logger
 app = FastAPI(
     title="Ed Tech",
     description="A platform that provides education with the help of AI.",
@@ -21,6 +23,15 @@ app.include_router(document_chat.router,
                    tags=["DocumentChat"]
                    )
 
+app.include_router(lecture_notes.router,
+                   prefix="/api/lecture_notes",
+                   tags=["LectureNotes"]
+                   )
+
+app.include_router(agent_chat.router,
+                   prefix="/api/agent_chat",
+                   tags=["AgentChat"]
+                   )
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -42,7 +53,8 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "available_endpoints": {
             "video to quiz": "/api/video_to_quiz",
-            "document chat": "/api/document_chat"
+            "document chat": "/api/document_chat",
+            "lecture notes": "/api/lecture_notes"
         }
     }
 

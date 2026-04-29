@@ -70,3 +70,10 @@ def get_document_chat_message_history(db: Session, conversation_id: int, user_id
             )
             .order_by(asc(db_models.DocumentChatMessageHistory.timestamp))
             .all())
+
+def get_document_id(db: Session, user_id: str, conversation_id: int):
+    result = (db.query(db_models.DocumentChatHistory)
+              .filter(db_models.DocumentChatHistory.conversation_id == conversation_id)
+              .filter(db_models.DocumentChatHistory.user_id == user_id)
+              .first())
+    return result.document_id
